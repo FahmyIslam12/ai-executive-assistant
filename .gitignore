@@ -1,0 +1,16 @@
+# Secret environment variables
+.env
+
+# Python virtual environment
+.venv/
+
+# Python generated files
+__pycache__/
+*.pyc
+
+# Google authentication files we will add later
+credentials.json
+token.json
+
+# macOS
+.DS_Store
