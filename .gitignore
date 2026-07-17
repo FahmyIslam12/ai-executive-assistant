@@ -14,3 +14,6 @@ token.json
 
 # macOS
 .DS_Store
+
+# Local assistant memory
+data/memory.json
