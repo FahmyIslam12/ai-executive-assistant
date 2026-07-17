@@ -2,8 +2,9 @@ import asyncio
 import logging
 import os
 
+from assistant.llm import get_ai_response
+from assistant.memory import load_messages, save_messages
 from dotenv import load_dotenv
-from google import genai
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -18,33 +19,9 @@ from telegram.ext import (
 load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("TELEGRAM_BOT_TOKEN is missing from the .env file.")
-
-if not GEMINI_API_KEY:
-    raise RuntimeError("GEMINI_API_KEY is missing from the .env file.")
-
-
-# Create the Gemini client.
-gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-
-SYSTEM_INSTRUCTION = """
-You are JobPilot, a personal AI job-application assistant.
-
-For now, you may:
-- Answer questions.
-- Help write professional job-application emails.
-- Suggest improvements to CV content.
-- Explain AI and programming concepts simply.
-
-You must not claim that an email has been sent.
-You must not claim that a job application has been submitted.
-Those capabilities will be connected later.
-
-Keep your replies clear, practical, and concise.
-"""
 
 
 async def start(
@@ -56,19 +33,35 @@ async def start(
 
     if update.message:
         await update.message.reply_text(
-            "Hello! I am JobPilot.\n\n"
-            "Send me a question or ask me to draft a job-application email."
+            "Hello! I am your AI Executive Assistant.\n\n"
+            "Send me a message and I'll do my best to help."
         )
 
 
-def ask_gemini(user_message: str) -> str:
-    """Send a message to Gemini and return its answer."""
-    response = gemini_client.models.generate_content(
-        model="gemini-3.5-flash",
-        contents=f"{SYSTEM_INSTRUCTION}\n\nUser message:\n{user_message}",
+def ask_openai(user_message: str) -> str:
+    """Send a message to OpenAI using saved conversation history."""
+    messages = load_messages()
+
+    messages.append(
+        {
+            "role": "user",
+            "content": user_message,
+        }
     )
 
-    return response.text or "I could not generate a response."
+    ai_response = get_ai_response(messages)
+
+    messages.append(
+        {
+            "role": "assistant",
+            "content": ai_response,
+        }
+    )
+
+    save_messages(messages)
+
+    return ai_response
+
 
 async def handle_message(
     update: Update,
@@ -88,10 +81,10 @@ async def handle_message(
     await update.message.reply_text("Thinking...")
 
     try:
-        # The Gemini SDK call is synchronous, so it runs in another thread
-        # to avoid freezing the Telegram bot.
+        # The OpenAI request is synchronous, so it runs in another thread
+        # to avoid blocking the Telegram bot.
         ai_response = await asyncio.to_thread(
-            ask_gemini,
+            ask_openai,
             user_message,
         )
 
@@ -127,7 +120,7 @@ def main() -> None:
         )
     )
 
-    print("JobPilot is running. Press Control+C to stop it.")
+    print("AI Executive Assistant is running. Press Control+C to stop it.")
 
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
