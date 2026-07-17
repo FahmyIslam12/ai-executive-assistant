@@ -1,32 +1,29 @@
-# JobPilot AI Assistant
+# AI Executive Assistant
 
-JobPilot is a beginner-built AI assistant that connects Telegram with Google Gemini.
+AI Executive Assistant is a beginner-built Python assistant that uses the OpenAI API and stores conversation history locally.
 
-## Current features
+## Features
 
-- Receives messages through Telegram
-- Sends user messages to Gemini
-- Returns AI-generated responses
-- Helps draft job-application emails
-- Explains programming and AI concepts
+- Sends user messages to OpenAI
+- Stores conversation history in JSON
+- Supports `/help`
+- Supports `/history`
+- Supports `/clear`
+- Supports `/exit`
+- Uses environment variables for API keys
 
-## Technology
+## Technologies
 
 - Python
-- Telegram Bot API
-- Google Gemini API
-- python-telegram-bot
+- OpenAI API
 - python-dotenv
+- JSON
 
-## Current status
+## Project Status
 
-Day 1 completed: Telegram and Gemini are connected successfully.
+Day 3 completed:
 
-## Planned features
-
-- Gmail draft creation
-- CV attachment
-- Approval before sending
-- Job application tracking
-- Long-term memory
-- Cloud deployment
+- OpenAI integration
+- Local JSON memory
+- Command handling
+- Git and GitHub setup
