@@ -17,3 +17,6 @@ token.json
 
 # Local assistant memory
 data/memory.json
+
+# Local task data
+data/tasks.json
