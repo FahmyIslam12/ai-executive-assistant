@@ -1,10 +1,13 @@
 import json
-from pathlib import Path
-from .models import Task
 from datetime import date
+from pathlib import Path
+
+from .models import Task
+from uuid import uuid4
 
 
 TASKS_FILE = Path("data/tasks.json")
+
 
 def ensure_tasks_file() -> None:
     TASKS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -12,11 +15,13 @@ def ensure_tasks_file() -> None:
     if not TASKS_FILE.exists():
         TASKS_FILE.write_text("[]", encoding="utf-8")
 
+
 def save_tasks(tasks: list[Task]) -> None:
     ensure_tasks_file()
 
     data = [
         {
+            "id": task.id,
             "title": task.title,
             "completed": task.completed,
             "due_date": task.due_date.isoformat() if task.due_date else None,
@@ -28,6 +33,7 @@ def save_tasks(tasks: list[Task]) -> None:
         json.dumps(data, indent=2),
         encoding="utf-8",
     )
+
 
 def load_tasks() -> list[Task]:
     ensure_tasks_file()
@@ -50,6 +56,7 @@ def load_tasks() -> list[Task]:
                 title=item["title"],
                 completed=item["completed"],
                 due_date=due_date,
+                id=item.get("id", str(uuid4())),
             )
         )
 
