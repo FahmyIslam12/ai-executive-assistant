@@ -1,5 +1,6 @@
 from assistant.llm import get_ai_response
 from assistant.memory import clear_messages, load_messages, save_messages
+from assistant.tasks.manager import TaskManager
 
 
 def show_help() -> None:
@@ -7,6 +8,7 @@ def show_help() -> None:
         "\nAvailable commands:\n"
         "/help     Show available commands\n"
         "/history  Show conversation history\n"
+        "/tasks    Show saved tasks\n"
         "/clear    Clear saved memory\n"
         "/exit     Close the assistant\n"
     )
@@ -32,8 +34,25 @@ def show_history(messages: list[dict[str, str]]) -> None:
     print()
 
 
+def show_tasks(task_manager: TaskManager) -> None:
+    tasks = task_manager.list_tasks()
+
+    if not tasks:
+        print("\nNo tasks yet.\n")
+        return
+
+    print("\nTasks:")
+
+    for task in tasks:
+        status = "✓" if task.completed else " "
+        print(f"[{status}] {task.title} ({task.id})")
+
+    print()
+
+
 def main() -> None:
     messages = load_messages()
+    task_manager = TaskManager()
 
     print("AI Executive Assistant")
     print("Type /help to see commands.\n")
@@ -56,6 +75,10 @@ def main() -> None:
 
         if command == "/history":
             show_history(messages)
+            continue
+
+        if command == "/tasks":
+            show_tasks(task_manager)
             continue
 
         if command == "/clear":
