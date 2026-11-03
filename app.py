@@ -6,11 +6,12 @@ from assistant.tasks.manager import TaskManager
 def show_help() -> None:
     print(
         "\nAvailable commands:\n"
-        "/help     Show available commands\n"
-        "/history  Show conversation history\n"
-        "/tasks    Show saved tasks\n"
-        "/clear    Clear saved memory\n"
-        "/exit     Close the assistant\n"
+        "/help              Show available commands\n"
+        "/history           Show conversation history\n"
+        "/tasks             Show saved tasks\n"
+        "/addtask <title>   Add a new task\n"
+        "/clear             Clear saved memory\n"
+        "/exit              Close the assistant\n"
     )
 
 
@@ -79,6 +80,17 @@ def main() -> None:
 
         if command == "/tasks":
             show_tasks(task_manager)
+            continue
+
+        if command.startswith("/addtask "):
+            title = user_input[len("/addtask "):].strip()
+
+            if not title:
+                print("Assistant: Please provide a task title.\n")
+                continue
+
+            task = task_manager.add_task(title)
+            print(f"Assistant: Added task: {task.title}\n")
             continue
 
         if command == "/clear":
