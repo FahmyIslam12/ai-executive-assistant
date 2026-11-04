@@ -1,6 +1,6 @@
 from assistant.llm import get_ai_response
 from assistant.memory import clear_messages, load_messages, save_messages
-from assistant.tasks.manager import TaskManager
+from assistant.tasks.manager import TaskManager, format_tasks
 
 
 def show_help() -> None:
@@ -10,6 +10,8 @@ def show_help() -> None:
         "/history           Show conversation history\n"
         "/tasks             Show saved tasks\n"
         "/addtask <title>   Add a new task\n"
+        "/done <number>     Mark a task as completed\n"
+        "/delete <number>   Delete a task\n"
         "/clear             Clear saved memory\n"
         "/exit              Close the assistant\n"
     )
@@ -36,18 +38,8 @@ def show_history(messages: list[dict[str, str]]) -> None:
 
 
 def show_tasks(task_manager: TaskManager) -> None:
-    tasks = task_manager.list_tasks()
-
-    if not tasks:
-        print("\nNo tasks yet.\n")
-        return
-
     print("\nTasks:")
-
-    for task in tasks:
-        status = "✓" if task.completed else " "
-        print(f"[{status}] {task.title} ({task.id})")
-
+    print(format_tasks(task_manager.list_tasks()))
     print()
 
 
@@ -91,6 +83,22 @@ def main() -> None:
 
             task = task_manager.add_task(title)
             print(f"Assistant: Added task: {task.title}\n")
+            continue
+
+        if command.startswith("/done ") or command.startswith("/delete "):
+            action, _, ref = user_input.partition(" ")
+            task = task_manager.find_task(ref)
+
+            if task is None:
+                print("Assistant: Task not found. Use /tasks to see the numbers.\n")
+                continue
+
+            if action.lower() == "/done":
+                task_manager.complete_task(task.id)
+                print(f"Assistant: Completed: {task.title}\n")
+            else:
+                task_manager.delete_task(task.id)
+                print(f"Assistant: Deleted: {task.title}\n")
             continue
 
         if command == "/clear":
