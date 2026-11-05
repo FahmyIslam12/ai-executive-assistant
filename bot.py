@@ -146,8 +146,7 @@ def ask_openai(user_message: str) -> str:
         }
     )
 
-    ai_response = get_ai_response(messages)
-
+    ai_response = get_ai_response(messages, task_manager)
     messages.append(
         {
             "role": "assistant",

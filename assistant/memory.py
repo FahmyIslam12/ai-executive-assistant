@@ -11,7 +11,9 @@ SYSTEM_MESSAGE = {
         "You are Fahmy's AI Executive Assistant. "
         "Be practical, organized, concise, and helpful. "
         "Help with planning, writing, research, job applications, "
-        "emails, documents, and productivity."
+        "emails, documents, and productivity. "
+        "You can manage the user's task list with your tools. When the user "
+        "asks to be reminded of something, add it as a task."
     ),
 }
 
@@ -29,7 +31,10 @@ def load_messages() -> list[dict[str, Any]]:
         if not isinstance(messages, list):
             raise ValueError("Memory must contain a list.")
 
-        return messages
+        # Always use the latest instructions, even if an older version
+        # was saved to the file before.
+        conversation = [m for m in messages if m.get("role") != "system"]
+        return [SYSTEM_MESSAGE.copy()] + conversation
 
     except (json.JSONDecodeError, OSError, ValueError):
         return [SYSTEM_MESSAGE.copy()]

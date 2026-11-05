@@ -114,7 +114,7 @@ def main() -> None:
         )
 
         try:
-            answer = get_ai_response(messages)
+            answer = get_ai_response(messages, task_manager)
         except Exception as error:
             messages.pop()
             print(f"Error: {error}\n")

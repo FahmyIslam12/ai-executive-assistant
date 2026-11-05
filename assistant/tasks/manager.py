@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional
 
 from .models import Task
@@ -8,8 +9,8 @@ class TaskManager:
     def __init__(self) -> None:
         self.tasks: list[Task] = load_tasks()
 
-    def add_task(self, title: str) -> Task:
-        task = Task(title=title)
+    def add_task(self, title: str, due_date: Optional[date] = None) -> Task:
+        task = Task(title=title, due_date=due_date)
         self.tasks.append(task)
         save_tasks(self.tasks)
         return task
@@ -51,6 +52,7 @@ class TaskManager:
 
         return None
 
+
 def format_tasks(tasks: list[Task]) -> str:
     """Turn a list of tasks into readable numbered lines."""
     if not tasks:
@@ -60,6 +62,7 @@ def format_tasks(tasks: list[Task]) -> str:
 
     for number, task in enumerate(tasks, start=1):
         status = "✓" if task.completed else " "
-        lines.append(f"{number}. [{status}] {task.title}")
+        due = f" (due {task.due_date.strftime('%a %d %b')})" if task.due_date else ""
+        lines.append(f"{number}. [{status}] {task.title}{due}")
 
     return "\n".join(lines)
