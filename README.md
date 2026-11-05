@@ -1,213 +1,113 @@
 # AI Executive Assistant
 
-An AI-powered executive assistant built with Python, OpenAI, and Telegram, combining conversational AI, persistent memory, and task management in a modular application.
+A personal AI assistant you talk to through **Telegram** or the **command line**. It holds context-aware conversations using the OpenAI API, remembers past messages, and keeps a simple task list.
 
-## Overview
+<p>
+  <img src="docs/telegram-tasks.png" alt="Managing tasks in Telegram" width="380">
+  &nbsp;
+  <img src="docs/telegram-help.png" alt="Bot commands in Telegram" width="300">
+</p>
 
-AI Executive Assistant is a Python application designed to support everyday productivity through AI-powered conversations and structured task management.
+## Why I built this
 
-The project provides a command-line interface for interacting with an AI assistant and managing tasks, alongside a Telegram bot for conversational access.
+I'm applying to many companies, and job searching means a lot of repeated work: writing emails, tracking applications and remembering what to do next. I wanted a personal assistant that I control, instead of giving my personal accounts to a public AI tool. I also wanted to learn how AI agents work by building one myself.
 
-Its architecture separates user interfaces, AI integration, conversation memory, and task-management logic to support future expansion into more advanced automation workflows.
+Version 1 handles AI conversation and task tracking through Telegram. Version 2 will connect Gmail and help with job applications.
 
-## Features
+## What it does
 
-### AI-Powered Conversations
+- **AI chat:** ask questions or get help writing, for example a thank-you email after an interview.
+- **Memory:** conversation history is saved to a JSON file and restored on restart. Only the 20 most recent messages are sent to OpenAI, to keep responses fast and costs low.
+- **Task tracking:** add, list, complete and delete tasks. Each task has a unique ID and is saved to a JSON file.
+- **Two interfaces:** the same features work in Telegram (on your phone) and in the terminal.
 
-- Generates conversational responses using the OpenAI API.
-- Maintains conversation context across messages.
-- Saves conversation history locally in JSON format.
-- Restores saved conversation history between sessions.
-- Handles API errors in the command-line interface.
+![AI drafting an email in Telegram](docs/telegram-chat.png)
 
-### Task Management
+## Commands
 
-- Creates tasks with unique identifiers.
-- Stores tasks persistently in JSON format.
-- Lists tasks and their completion status.
-- Supports task completion and deletion through the task-management module.
-- Preserves saved tasks between application restarts.
-
-### Command-Line Interface
-
-| Command | Description |
+| Command | What it does |
 |---|---|
-| `/help` | Display available commands |
-| `/history` | View saved conversation history |
-| `/tasks` | Display saved tasks |
-| `/addtask <title>` | Create a new task |
-| `/clear` | Clear conversation memory |
-| `/exit` | Exit the assistant |
+| `/tasks` | Show all tasks |
+| `/addtask <title>` | Add a task |
+| `/done <number>` | Mark a task as completed |
+| `/delete <number>` | Delete a task |
+| `/help` | Show the commands |
+| any other message | Chat with the AI |
 
-Task completion and deletion commands are planned for the command-line interface.
+The terminal version also has `/history`, `/clear` and `/exit`.
 
-### Telegram Bot
-
-- Provides conversational AI responses through Telegram.
-- Connects Telegram messages to the OpenAI API.
-- Supports the `/start` command.
-- Uses local conversation history.
-
-The Telegram implementation currently uses shared conversation memory and is not intended for public multi-user deployment.
-
-## Technology Stack
-
-| Technology | Purpose |
-|---|---|
-| Python | Application development |
-| OpenAI API | AI-powered conversations |
-| python-telegram-bot | Telegram integration |
-| python-dotenv | Environment variable configuration |
-| JSON | Local data persistence |
-| Git and GitHub | Version control and source hosting |
-
-## Project Structure
+## How it works
 
 ```text
-ai-executive-assistant/
-├── assistant/
-│   ├── __init__.py
-│   ├── llm.py
-│   ├── memory.py
-│   └── tasks/
-│       ├── __init__.py
-│       ├── models.py
-│       ├── manager.py
-│       └── storage.py
-├── data/
-├── app.py
-├── bot.py
-├── requirements.txt
-├── .gitignore
-└── README.md
+You (Telegram or terminal)
+        │
+        ▼
+ bot.py / app.py        ← receives your message, decides what to do
+        │
+        ├── a task command  → assistant/tasks/  → saved in data/tasks.json
+        │
+        └── a normal message → assistant/llm.py → OpenAI API
+                               assistant/memory.py → saved in data/memory.json
 ```
 
-### Main Components
+| File | Role |
+|---|---|
+| `bot.py` | Telegram interface |
+| `app.py` | Command-line interface |
+| `assistant/llm.py` | Sends messages to OpenAI and returns the reply |
+| `assistant/memory.py` | Saves and loads conversation history |
+| `assistant/tasks/` | Task model, task logic and JSON storage |
 
-- **app.py:** Command-line interface and command handling.
-- **bot.py:** Telegram bot integration.
-- **assistant/llm.py:** OpenAI API communication.
-- **assistant/memory.py:** Conversation history management.
-- **assistant/tasks/models.py:** Task data model.
-- **assistant/tasks/manager.py:** Task creation, listing, completion, and deletion logic.
-- **assistant/tasks/storage.py:** JSON-based task persistence.
+## How to run it
 
-## Installation
-
-### 1. Clone the repository
+**1. Download the project and install what it needs**
 
 ```bash
 git clone https://github.com/FahmyIslam12/ai-executive-assistant.git
 cd ai-executive-assistant
-```
-
-### 2. Create a virtual environment
-
-```bash
 python3 -m venv .venv
 source .venv/bin/activate
-```
-
-For Windows:
-
-```powershell
-.venv\Scripts\activate
-```
-
-### 3. Install dependencies
-
-```bash
 pip install -r requirements.txt
 ```
 
-### 4. Configure environment variables
-
-Create a `.env` file in the project root.
-
-Add your OpenAI API key:
+**2. Add your keys.** Create a file named `.env` in the project folder:
 
 ```env
 OPENAI_API_KEY=your_openai_api_key
-```
-
-To use Telegram, also provide your bot token:
-
-```env
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 ```
 
-Never commit real API keys, bot tokens, or other credentials to GitHub.
+Get a bot token from [@BotFather](https://t.me/BotFather) on Telegram. The `.env` file is listed in `.gitignore`, so your keys are never uploaded.
 
-## Usage
-
-### Command-Line Assistant
-
-Start the assistant:
+**3. Start it**
 
 ```bash
-python app.py
+python bot.py    # Telegram bot
+python app.py    # terminal version
 ```
-
-Example interaction:
-
-```text
-AI Executive Assistant
-Type /help to see commands.
-
-You: /addtask Prepare project documentation
-Assistant: Added task: Prepare project documentation
-
-You: /tasks
-
-Tasks:
-[ ] Prepare project documentation (...)
-```
-
-You can also send ordinary messages to the assistant to receive AI-generated responses.
-
-### Telegram Bot
-
-Start the Telegram interface:
-
-```bash
-python bot.py
-```
-
-A valid Telegram bot token must be configured in your `.env` file.
-
-## Current Limitations
-
-- Task completion and deletion are implemented in the task-management module but are not yet exposed through CLI commands.
-- Task management currently relies on explicit commands rather than natural-language instructions.
-- Conversation history and tasks use local JSON files instead of a database.
-- Telegram conversations are not isolated by individual user.
-- Persistent storage needs stronger error handling and concurrency protection.
-- Automated tests, continuous integration, and deployment configuration are not yet implemented.
-
-## Development Roadmap
-
-The following capabilities are planned:
-
-- [ ] Complete CLI task-management commands.
-- [ ] Add automated tests for task operations and persistence.
-- [ ] Improve configuration and error handling.
-- [ ] Implement user-specific Telegram conversation memory.
-- [ ] Add AI tool calling for natural-language task management.
-- [ ] Introduce database-backed storage.
-- [ ] Set up continuous integration with GitHub Actions.
-- [ ] Explore calendar and email integrations.
-- [ ] Prepare a reproducible deployment and demonstration.
 
 ## Security
 
-API keys and bot tokens are configured through environment variables rather than embedded directly in application source code.
+- API keys are stored in `.env`, not in the code.
+- The bot hides request URLs from its logs, because Telegram URLs contain the bot token.
+- Account access stays in this app. OpenAI only receives the text needed for each request.
 
-Local configuration files and application data are excluded from version control through `.gitignore`.
+## Current limitations
 
-The project is under active development and has not yet been hardened for production or public multi-user use.
+- Built for one user: all Telegram chats share the same memory and task list.
+- Tasks are managed with commands, not natural language ("remind me to…").
+- Data is stored in JSON files, not a database.
+- No automated tests yet.
 
-## Project Status
+## Roadmap (version 2)
 
-The application currently supports OpenAI-powered conversations, persistent conversation memory, JSON-based task management, a command-line interface, and Telegram integration.
+- [ ] Gmail integration: read, draft and send emails
+- [ ] Help with job applications
+- [ ] Natural-language task management (AI decides when to create a task)
+- [ ] Separate memory for each Telegram user
+- [ ] Automated tests
+- [ ] Test a local AI model (Ollama) for more privacy
 
-Additional functionality, reliability improvements, and automated testing are being developed incrementally.
+## Tech stack
+
+Python · OpenAI API · python-telegram-bot · JSON · Git
