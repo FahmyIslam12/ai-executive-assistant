@@ -1,6 +1,6 @@
 # AI Executive Assistant
 
-A personal AI agent you talk to through **Telegram** or the **command line**. It holds context-aware conversations using the OpenAI API, remembers past messages, and manages your task list when you ask in plain language, for example *"remind me to apply to Brain Station on Friday"*.
+A personal AI agent you talk to through **Telegram** or the **command line**. It holds context-aware conversations using the OpenAI API, remembers past messages, and manages your task list when you ask in plain language, for example *"remind me to apply to Brain Station on Friday"*. Every morning it messages you about tasks that are due.
 
 ![The assistant adding, listing and completing tasks from plain-language messages](docs/telegram-agent.png)
 
@@ -13,12 +13,17 @@ Version 1 handles AI conversation and task tracking through Telegram. Version 2 
 ## What it does
 
 - **Plain-language task management (AI tool calling):** say *"remind me to…"* or *"I finished…"* and the AI decides to add, list or complete a task. It also turns words like "Friday" into a real due date.
+- **Daily reminders:** every morning at 9:00 (Bangladesh time) the bot messages you first, listing tasks due today and overdue tasks. `/remind` checks right away.
 - **AI chat:** ask questions or get help writing, for example a thank-you email after an interview.
 - **Memory:** conversation history is saved to a JSON file and restored on restart. Only the 20 most recent messages are sent to OpenAI, to keep responses fast and costs low.
 - **Task tracking:** tasks have a unique ID and an optional due date, and are saved to a JSON file. Slash commands also work.
 - **Two interfaces:** the same features work in Telegram (on your phone) and in the terminal.
 
-![AI drafting an email in Telegram](docs/telegram-chat.png)
+<p>
+  <img src="docs/telegram-reminder.png" alt="The bot sending an automatic reminder" width="360">
+  &nbsp;
+  <img src="docs/telegram-chat.png" alt="AI drafting an email in Telegram" width="420">
+</p>
 
 ## Commands
 
@@ -28,6 +33,7 @@ Version 1 handles AI conversation and task tracking through Telegram. Version 2 
 | `/addtask <title>` | Add a task |
 | `/done <number>` | Mark a task as completed |
 | `/delete <number>` | Delete a task |
+| `/remind` | Show tasks due today or overdue |
 | `/help` | Show the commands |
 | any other message | Chat with the AI, or ask it to manage your tasks |
 
@@ -52,6 +58,8 @@ You (Telegram or terminal)
                          result goes back to OpenAI → final reply to you
 ```
 
+**Reminders:** the bot uses a scheduler (python-telegram-bot's JobQueue, built on APScheduler) to run a check every day at 9:00. It saves the chat ID from your messages so it knows where to send the reminder.
+
 **Tool calling:** the app sends OpenAI a "menu" of tools (`add_task`, `list_tasks`, `complete_task`) with a description of each. OpenAI reads the user's message, picks the right tool and asks the app to run it. OpenAI never touches the files itself: the app's own code does the work and stays in control.
 
 | File | Role |
@@ -60,6 +68,7 @@ You (Telegram or terminal)
 | `app.py` | Command-line interface |
 | `assistant/llm.py` | Sends messages to OpenAI and runs the tool-calling loop |
 | `assistant/tools.py` | The tools the AI can ask for, and the code that runs them |
+| `assistant/reminders.py` | Finds due and overdue tasks, and remembers the chat to remind |
 | `assistant/memory.py` | Saves and loads conversation history |
 | `assistant/tasks/` | Task model, task logic and JSON storage |
 
@@ -100,7 +109,8 @@ python app.py    # terminal version
 ## Current limitations
 
 - Built for one user: all Telegram chats share the same memory and task list.
-- Reminders are saved as tasks with due dates, but the bot doesn't send notifications yet.
+- Reminders only arrive while the bot is running on a computer. Hosting it on a server would fix this.
+- Reminders are daily (by date), not at a specific time of day.
 - AI replies aren't fully predictable: it may choose to show only unfinished tasks unless asked for all.
 - Data is stored in JSON files, not a database.
 - No automated tests yet.
@@ -110,11 +120,12 @@ python app.py    # terminal version
 - [ ] Gmail integration: read, draft and send emails
 - [ ] Help with job applications
 - [x] Natural-language task management with AI tool calling
-- [ ] Send reminder notifications on the due date
+- [x] Daily reminder notifications for due and overdue tasks
+- [ ] Host the bot on a server so it runs 24/7
 - [ ] Separate memory for each Telegram user
 - [ ] Automated tests
 - [ ] Test a local AI model (Ollama) for more privacy
 
 ## Tech stack
 
-Python · OpenAI API · python-telegram-bot · JSON · Git
+Python · OpenAI API (tool calling) · python-telegram-bot · APScheduler · JSON · Git
