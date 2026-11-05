@@ -20,3 +20,4 @@ data/memory.json
 
 # Local task data
 data/tasks.json
+data/chat.json

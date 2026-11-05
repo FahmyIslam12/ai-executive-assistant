@@ -1,9 +1,12 @@
 import asyncio
 import logging
 import os
+from datetime import date, time
+from zoneinfo import ZoneInfo
 
 from assistant.llm import get_ai_response
 from assistant.memory import load_messages, save_messages
+from assistant.reminders import build_reminder, load_chat_id, save_chat_id
 from assistant.tasks.manager import TaskManager, format_tasks
 from dotenv import load_dotenv
 from telegram import Update
@@ -12,6 +15,7 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 
@@ -26,15 +30,30 @@ if not TELEGRAM_BOT_TOKEN:
 
 task_manager = TaskManager()
 
+# When the daily reminder is sent (Bangladesh time).
+REMINDER_TIME = time(hour=9, minute=00, tzinfo=ZoneInfo("Asia/Dhaka"))
+
 HELP_TEXT = (
     "Commands:\n"
     "/tasks - Show your tasks\n"
     "/addtask <title> - Add a task\n"
     "/done <number> - Mark a task as completed\n"
     "/delete <number> - Delete a task\n"
+    "/remind - Show tasks due today or overdue\n"
     "/help - Show this message\n\n"
     "Or just send me a message to chat."
 )
+
+
+async def remember_chat(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Save the chat ID from every message, so reminders know where to go."""
+    del context
+
+    if update.effective_chat:
+        save_chat_id(update.effective_chat.id)
 
 
 async def start(
@@ -135,6 +154,36 @@ async def delete_command(
     await update.message.reply_text(f"Deleted: {task.title}")
 
 
+async def remind_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Check for due tasks right now. Useful for testing."""
+    del context
+
+    if not update.message:
+        return
+
+    reminder = build_reminder(task_manager.list_tasks(), date.today())
+    await update.message.reply_text(
+        reminder or "Nothing is due today or overdue. 🎉"
+    )
+
+
+async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Runs automatically every day at REMINDER_TIME."""
+    chat_id = load_chat_id()
+
+    if chat_id is None:
+        # Nobody has messaged the bot yet, so we don't know where to send.
+        return
+
+    reminder = build_reminder(task_manager.list_tasks(), date.today())
+
+    if reminder:
+        await context.bot.send_message(chat_id=chat_id, text=reminder)
+
+
 def ask_openai(user_message: str) -> str:
     """Send a message to OpenAI using saved conversation history."""
     messages = load_messages()
@@ -212,18 +261,30 @@ def main() -> None:
         .build()
     )
 
+    # group=-1 means this runs first, for every message, before the others.
+    application.add_handler(TypeHandler(Update, remember_chat), group=-1)
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("tasks", tasks_command))
     application.add_handler(CommandHandler("addtask", addtask_command))
     application.add_handler(CommandHandler("done", done_command))
     application.add_handler(CommandHandler("delete", delete_command))
+    application.add_handler(CommandHandler("remind", remind_command))
     application.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
             handle_message,
         )
     )
+
+    # The JobQueue is the bot's built-in scheduler.
+    if application.job_queue is None:
+        raise RuntimeError(
+            'Reminders need the scheduler. Run: pip install -r requirements.txt'
+        )
+
+    application.job_queue.run_daily(send_daily_reminder, time=REMINDER_TIME)
 
     print("AI Executive Assistant is running. Press Control+C to stop it.")
 
