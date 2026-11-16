@@ -1,6 +1,6 @@
 # AI Executive Assistant
 
-A personal AI agent you talk to through **Telegram** or the **command line**. It holds context-aware conversations using the OpenAI API, remembers past messages, and manages your task list when you ask in plain language, for example *"remind me to apply to Brain Station on Friday"*. Every morning it messages you about tasks that are due, and it can search, read and summarize your Gmail (read-only).
+A personal AI agent you talk to through **Telegram** or the **command line**. It holds context-aware conversations using the OpenAI API, remembers past messages, and manages your task list when you ask in plain language, for example *"remind me to apply to Brain Station on Friday"*. Every morning it messages you about tasks that are due, and it works with your Gmail: it finds and summarizes emails, and drafts replies and tailored job applications that are sent only after you approve them.
 
 ![The assistant adding, listing and completing tasks from plain-language messages](docs/telegram-agent.png)
 
@@ -8,13 +8,15 @@ A personal AI agent you talk to through **Telegram** or the **command line**. It
 
 I'm applying to many companies, and job searching means a lot of repeated work: writing emails, tracking applications and remembering what to do next. I wanted a personal assistant that I control, instead of giving my personal accounts to a public AI tool. I also wanted to learn how AI agents work by building one myself.
 
-Version 1 handles AI conversation, task tracking and reminders. Version 2 adds Gmail: reading and summarizing emails is done; drafting tailored application emails that are sent only after my approval is in progress.
+Version 1 handles AI conversation, task tracking and reminders. Version 2 adds Gmail: reading and summarizing emails, and drafting replies and tailored job applications that are sent only after my approval.
 
 ## What it does
 
 - **Plain-language task management (AI tool calling):** say *"remind me to…"* or *"I finished…"* and the AI decides to add, list or complete a task. It also turns words like "Friday" into a real due date.
 - **Daily reminders:** every morning at 9:00 (Bangladesh time) the bot messages you first, listing tasks due today and overdue tasks. `/remind` checks right away.
-- **Gmail (read-only):** *"summarize the interview email"* or *"summarize my unread emails from this week"*. The bot finds and summarizes emails, and can check spam when asked. It cannot send, move or delete anything.
+- **Gmail: read and summarize:** *"summarize the interview email"* or *"summarize my unread emails from this week"*. The bot finds and summarizes emails, and can check spam when asked.
+- **Gmail: draft, approve, send:** *"reply and confirm I can attend"*, or paste a job post and ask for an application. The AI writes a draft in Gmail (with my CV attached for applications), and Telegram shows a preview with **Send** and **Cancel** buttons. Nothing is sent until I press Send, and I can edit the draft in the Gmail app first.
+- **Honest applications:** the AI must list the CV facts it used, and the code checks each one word for word against my CV before the draft is created, so it can't exaggerate my skills.
 - **AI chat:** ask questions or get help writing, for example a thank-you email after an interview.
 - **Memory:** conversation history is saved to a JSON file and restored on restart. Only the 20 most recent messages are sent to OpenAI, to keep responses fast and costs low.
 - **Task tracking:** tasks have a unique ID and an optional due date, and are saved to a JSON file. Slash commands also work.
@@ -35,6 +37,7 @@ Version 1 handles AI conversation, task tracking and reminders. Version 2 adds G
 | `/done <number>` | Mark a task as completed |
 | `/delete <number>` | Delete a task |
 | `/remind` | Show tasks due today or overdue |
+| `/clear` | Erase the saved conversation memory |
 | `/help` | Show the commands |
 | any other message | Chat with the AI, or ask it to manage your tasks |
 
@@ -69,7 +72,7 @@ You (Telegram or terminal)
 | `app.py` | Command-line interface |
 | `assistant/llm.py` | Sends messages to OpenAI and runs the tool-calling loop |
 | `assistant/tools.py` | The tools the AI can ask for, and the code that runs them |
-| `assistant/gmail.py` | Gmail login (OAuth), email search and reading |
+| `assistant/gmail.py` | Gmail login (OAuth), search, reading, drafts, send and delete draft |
 | `assistant/reminders.py` | Finds due and overdue tasks, and remembers the chat to remind |
 | `assistant/memory.py` | Saves and loads conversation history |
 | `assistant/tasks/` | Task model, task logic and JSON storage |
@@ -105,9 +108,12 @@ pip install -r requirements.txt
 ```env
 OPENAI_API_KEY=your_openai_api_key
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+TELEGRAM_OWNER_ID=your_telegram_user_id
 ```
 
 Get a bot token from [@BotFather](https://t.me/BotFather) on Telegram. The `.env` file is listed in `.gitignore`, so your keys are never uploaded.
+
+To find your Telegram user ID, leave `TELEGRAM_OWNER_ID` out, start the bot and send it any message: it replies with your ID. Add it to `.env` and restart. From then on, the bot ignores everyone else.
 
 **3. Optional: connect Gmail**
 
@@ -118,6 +124,8 @@ python -m assistant.gmail
 ```
 
 This opens your browser and saves `token.json`. Both files are listed in `.gitignore`.
+
+For job applications, put your CV in `data/cv/`: `cv.txt` (plain text the AI reads) and `cv.pdf` (attached to emails). The folder is in `.gitignore`.
 
 **4. Start it**
 
@@ -131,9 +139,11 @@ python app.py    # terminal version
 - API keys are stored in `.env`, not in the code.
 - The bot hides request URLs from its logs, because Telegram URLs contain the bot token.
 - Account access stays in this app. OpenAI only receives the text needed for each request.
-- Gmail access uses OAuth with the read-only scope (least privilege). `credentials.json` and `token.json` are never committed.
-- Email text is never written to logs or to the saved conversation memory.
-- Prompt-injection defence in layers: email text is labelled as data, the AI is told not to follow instructions inside emails, and it has no tools that can send, move or delete email.
+- **Owner-only:** Telegram bots are public by username, so the bot ignores every user except the owner's Telegram ID.
+- Gmail uses OAuth with only two scopes: read-only and compose (drafts and sending). `credentials.json`, `token.json` and the CV folder are never committed.
+- **Human in the loop:** the AI has no send tool. Only the owner's Send button sends an email.
+- **Prompt-injection defence in layers:** email text is labelled as data, the AI is told that instructions never come by email and to warn about emails that contain instructions for an AI, and it has no tools that can send, move or delete email. Tested with attack emails, including one impersonating me.
+- Email text is never written to the logs. `/clear` erases the conversation memory.
 
 ## Current limitations
 
@@ -146,15 +156,17 @@ python app.py    # terminal version
 - Gmail login expires every 7 days (Google's rule for apps in testing mode).
 - The prompt-injection defence reduces risk but can't guarantee the AI is never fooled; the hard protection is that it has no risky email tools.
 - Runs on Python 3.9, which is past end of life (to upgrade before deployment).
+- When the AI quotes or summarizes an email, that reply is saved in the local conversation memory until `/clear` is used.
+- The CV fact check covers the AI's list of facts, not every sentence, so the owner's review before pressing Send is still the final check.
 
 ## Roadmap
 
 - [x] Natural-language task management with AI tool calling
 - [x] Daily reminder notifications for due and overdue tasks
 - [x] Stage 1a: read and summarize Gmail (read-only)
-- [ ] Stage 1b: draft emails and tailored job applications, sent only after my approval
-- [ ] Stage 2: web search with source links
-- [ ] Stage 3: move from JSON files to a SQLite database
+- [x] Stage 1b: draft emails and tailored job applications, sent only after my approval
+- [ ] Stage 2: move from JSON files to a SQLite database, including a job-application tracker
+- [ ] Stage 3: web search with source links
 - [ ] Stage 4: automated tests (pytest)
 - [ ] Stage 5: run the bot 24/7 on a server
 - [ ] Stage 6: architecture diagram and demo
