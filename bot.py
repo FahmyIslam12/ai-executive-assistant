@@ -4,14 +4,18 @@ import os
 from datetime import date, time
 from zoneinfo import ZoneInfo
 
+from assistant import gmail
 from assistant.llm import get_ai_response
 from assistant.memory import load_messages, save_messages
 from assistant.reminders import build_reminder, load_chat_id, save_chat_id
 from assistant.tasks.manager import TaskManager, format_tasks
+from assistant.tools import pop_new_drafts
 from dotenv import load_dotenv
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
+    ApplicationHandlerStop,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -28,6 +32,10 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("TELEGRAM_BOT_TOKEN is missing from the .env file.")
 
+# Only this Telegram user may use the bot. Anyone else could otherwise
+# find the bot and ask it to read Fahmy's email.
+OWNER_ID = os.getenv("TELEGRAM_OWNER_ID", "").strip()
+
 task_manager = TaskManager()
 
 # When the daily reminder is sent (Bangladesh time).
@@ -43,6 +51,29 @@ HELP_TEXT = (
     "/help - Show this message\n\n"
     "Or just send me a message to chat."
 )
+
+
+async def owner_only(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Runs before everything else and blocks anyone who isn't the owner."""
+    del context
+    user = update.effective_user
+
+    if user and OWNER_ID and str(user.id) == OWNER_ID:
+        return  # The owner: let the other handlers run.
+
+    if update.message and not OWNER_ID and user:
+        # First-time setup: tell the person their ID so they can add it.
+        await update.message.reply_text(
+            f"Setup needed. Your Telegram user ID is {user.id}.\n"
+            f"Add this line to the .env file, then restart the bot:\n"
+            f"TELEGRAM_OWNER_ID={user.id}"
+        )
+
+    # Stop here: no other handler runs for this update.
+    raise ApplicationHandlerStop
 
 
 async def remember_chat(
@@ -196,6 +227,7 @@ def ask_openai(user_message: str) -> str:
     )
 
     ai_response = get_ai_response(messages, task_manager)
+
     messages.append(
         {
             "role": "assistant",
@@ -235,6 +267,10 @@ async def handle_message(
 
         await update.message.reply_text(ai_response)
 
+        # Show every draft the AI created, with Send and Cancel buttons.
+        for draft in pop_new_drafts():
+            await show_draft(update, draft)
+
     except Exception:
         logging.exception("The AI request failed.")
 
@@ -242,6 +278,78 @@ async def handle_message(
             "Something went wrong while contacting the AI. "
             "Check the Terminal for the error."
         )
+
+
+async def show_draft(update: Update, draft: dict[str, str]) -> None:
+    """Send a draft preview with Send and Cancel buttons."""
+    if not update.message:
+        return
+
+    body = draft["body"]
+    if len(body) > 3000:  # Telegram messages have a size limit.
+        body = body[:3000] + "\n[...see the full draft in Gmail...]"
+
+    attachment = draft["attachment"] or "none"
+    facts = draft.get("cv_facts_used") or "- (none listed)"
+    preview = (
+        "📝 DRAFT (not sent yet)\n\n"
+        f"To: {draft['to']}\n"
+        f"Subject: {draft['subject']}\n"
+        f"Attachment: {attachment}\n\n"
+        f"{body}\n\n"
+        "🔎 Based on your CV (checked word for word by the code):\n"
+        f"{facts}\n\n"
+        "Check: every claim above should come from this list. "
+        "You can edit it in the Gmail app (Drafts) before pressing Send."
+    )
+
+    # Each button carries the action and the draft's ID.
+    buttons = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("✅ Send", callback_data=f"send:{draft['draft_id']}"),
+                InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{draft['draft_id']}"),
+            ]
+        ]
+    )
+
+    await update.message.reply_text(preview, reply_markup=buttons)
+
+
+async def handle_draft_button(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Runs when Fahmy presses Send or Cancel. The ONLY place that sends."""
+    del context
+    query = update.callback_query
+
+    if not query or not query.data:
+        return
+
+    await query.answer()  # Stops the button's loading spinner.
+    action, _, draft_id = query.data.partition(":")
+
+    try:
+        if action == "send":
+            await asyncio.to_thread(gmail.send_draft, draft_id)
+            result = "✅ Sent."
+        elif action == "cancel":
+            await asyncio.to_thread(gmail.delete_draft, draft_id)
+            result = "❌ Cancelled. The draft was deleted."
+        else:
+            return
+    except Exception:
+        logging.exception("Draft button failed.")
+        result = (
+            "⚠️ That didn't work. The draft may already be sent or deleted "
+            "in Gmail, or the Gmail login expired."
+        )
+
+    # Replace the buttons with the result, so they can't be pressed twice.
+    await query.edit_message_reply_markup(reply_markup=None)
+    if query.message:
+        await query.message.reply_text(result)
 
 
 def main() -> None:
@@ -261,7 +369,9 @@ def main() -> None:
         .build()
     )
 
-    # group=-1 means this runs first, for every message, before the others.
+    # Lower group numbers run first. group=-2: block everyone except the
+    # owner. group=-1: remember the owner's chat for reminders.
+    application.add_handler(TypeHandler(Update, owner_only), group=-2)
     application.add_handler(TypeHandler(Update, remember_chat), group=-1)
 
     application.add_handler(CommandHandler("start", start))
@@ -271,6 +381,7 @@ def main() -> None:
     application.add_handler(CommandHandler("done", done_command))
     application.add_handler(CommandHandler("delete", delete_command))
     application.add_handler(CommandHandler("remind", remind_command))
+    application.add_handler(CallbackQueryHandler(handle_draft_button))
     application.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,

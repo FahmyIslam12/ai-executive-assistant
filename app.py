@@ -1,6 +1,7 @@
 from assistant.llm import get_ai_response
 from assistant.memory import clear_messages, load_messages, save_messages
 from assistant.tasks.manager import TaskManager, format_tasks
+from assistant.tools import pop_new_drafts
 
 
 def show_help() -> None:
@@ -130,6 +131,13 @@ def main() -> None:
         save_messages(messages)
 
         print(f"Assistant: {answer}\n")
+
+        # The terminal has no buttons: send drafts from the Gmail app.
+        for draft in pop_new_drafts():
+            print(
+                f"(Draft to {draft['to']} saved in Gmail. "
+                "Review and send it from the Gmail app.)\n"
+            )
 
 
 if __name__ == "__main__":

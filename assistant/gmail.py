@@ -1,12 +1,16 @@
 """Gmail access: log in with OAuth, search emails, and read one email.
 
-Stage 1a is READ-ONLY. This file never sends, deletes or changes emails.
+Stage 1a: search and read emails.
+Stage 1b: create drafts. Sending happens ONLY through send_draft(), which is
+called by the Telegram "Send" button, never by the AI.
 
 First-time login (run once on your computer, opens your browser):
     python -m assistant.gmail
 """
 
 import base64
+import mimetypes
+from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Optional
 
@@ -17,14 +21,23 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 
-# The permissions (scopes) we ask Google for. Read-only: least privilege.
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+# The permissions (scopes) we ask Google for, and nothing more.
+# readonly: search and read emails. compose: create drafts and send them.
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.compose",
+]
 
 # Your app's ID card, downloaded from Google Cloud. Never commit it.
 CREDENTIALS_FILE = Path("credentials.json")
 
 # The key card Google gives us after you click "Allow". Never commit it.
 TOKEN_FILE = Path("token.json")
+
+# Your CV. The AI reads cv.txt; the PDF (or Word file) is attached.
+CV_FOLDER = Path("data/cv")
+CV_TEXT_FILE = CV_FOLDER / "cv.txt"
+CV_ATTACHMENTS = [CV_FOLDER / "cv.pdf", CV_FOLDER / "cv.docx"]
 
 # Long emails are cut to this many characters before going to the AI.
 # This keeps cost down and limits how much private text is shared.
@@ -48,6 +61,11 @@ def get_service(allow_browser_login: bool = False) -> Any:
 
     # The access token expires after about 1 hour. Use the refresh token
     # to get a new one quietly, without asking you to log in again.
+    # If the saved login is missing a permission we now need (for example
+    # after adding "compose"), you must log in again to approve it.
+    if creds and not creds.has_scopes(SCOPES):
+        creds = None
+
     if creds and creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
@@ -169,10 +187,118 @@ def read_email(email_id: str) -> dict[str, str]:
     }
 
 
+def read_cv() -> str:
+    """Return the CV text the AI uses to write applications."""
+    if not CV_TEXT_FILE.exists():
+        return "No CV found. Put a text version of the CV in data/cv/cv.txt."
+    return CV_TEXT_FILE.read_text(encoding="utf-8")
+
+
+def find_cv_attachment() -> Optional[Path]:
+    """Return the CV file to attach (PDF first, then Word), if there is one."""
+    for path in CV_ATTACHMENTS:
+        if path.exists():
+            return path
+    return None
+
+
+def create_draft(
+    to: str,
+    subject: str,
+    body: str,
+    attach_cv: bool = False,
+    reply_to_email_id: Optional[str] = None,
+) -> dict[str, str]:
+    """Save an email as a draft in Gmail. Nothing is sent."""
+    service = get_service()
+
+    message = EmailMessage()
+    message["To"] = to
+    message["Subject"] = subject
+    message.set_content(body)
+
+    thread_id = None
+
+    if reply_to_email_id:
+        # Link the reply to the original email so Gmail shows one thread.
+        original = (
+            service.users()
+            .messages()
+            .get(
+                userId="me",
+                id=reply_to_email_id,
+                format="metadata",
+                metadataHeaders=["Message-ID"],
+            )
+            .execute()
+        )
+        thread_id = original.get("threadId")
+        original_id = _header(original, "Message-ID")
+        if original_id:
+            message["In-Reply-To"] = original_id
+            message["References"] = original_id
+
+    attachment_name = ""
+
+    if attach_cv:
+        cv_file = find_cv_attachment()
+        if cv_file is None:
+            raise FileNotFoundError("No CV file found in data/cv/ to attach.")
+
+        mime_type, _ = mimetypes.guess_type(cv_file.name)
+        maintype, subtype = (mime_type or "application/octet-stream").split("/")
+        attachment_name = cv_file.name
+        message.add_attachment(
+            cv_file.read_bytes(),
+            maintype=maintype,
+            subtype=subtype,
+            filename="Fahmy_Islam_CV" + cv_file.suffix,
+        )
+
+    # Gmail wants the whole email as base64 text.
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
+    draft_message: dict[str, Any] = {"raw": raw}
+    if thread_id:
+        draft_message["threadId"] = thread_id
+
+    draft = (
+        service.users()
+        .drafts()
+        .create(userId="me", body={"message": draft_message})
+        .execute()
+    )
+
+    return {
+        "draft_id": draft["id"],
+        "to": to,
+        "subject": subject,
+        "body": body,
+        "attachment": attachment_name,
+    }
+
+
+def send_draft(draft_id: str) -> None:
+    """Send a draft. Called ONLY by the Telegram Send button.
+
+    Gmail sends the draft's latest version, including edits you made in the
+    Gmail app after it was created.
+    """
+    service = get_service()
+    service.users().drafts().send(userId="me", body={"id": draft_id}).execute()
+
+
+def delete_draft(draft_id: str) -> None:
+    """Delete a draft this assistant created (used by the Cancel button)."""
+    service = get_service()
+    service.users().drafts().delete(userId="me", id=draft_id).execute()
+
+
 if __name__ == "__main__":
     # One-time login, and a quick test: show your 3 latest email subjects.
     get_service(allow_browser_login=True)
-    print("Gmail connected. Your 3 latest emails:")
+    profile = get_service().users().getProfile(userId="me").execute()
+    print(f"Gmail connected as: {profile['emailAddress']}")
+    print("Your 3 latest emails:")
 
     for email in search_emails("in:inbox", max_results=3):
         print(f"- {email['subject']}  (from {email['from']})")
