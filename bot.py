@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from assistant import gmail
 from assistant.llm import get_ai_response
-from assistant.memory import load_messages, save_messages
+from assistant.memory import clear_messages, load_messages, save_messages
 from assistant.reminders import build_reminder, load_chat_id, save_chat_id
 from assistant.tasks.manager import TaskManager, format_tasks
 from assistant.tools import pop_new_drafts
@@ -48,6 +48,7 @@ HELP_TEXT = (
     "/done <number> - Mark a task as completed\n"
     "/delete <number> - Delete a task\n"
     "/remind - Show tasks due today or overdue\n"
+    "/clear - Erase the conversation memory\n"
     "/help - Show this message\n\n"
     "Or just send me a message to chat."
 )
@@ -199,6 +200,21 @@ async def remind_command(
     await update.message.reply_text(
         reminder or "Nothing is due today or overdue. 🎉"
     )
+
+
+async def clear_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Erase the saved conversation (it can contain email text)."""
+    del context
+
+    if update.message:
+        clear_messages()
+        await update.message.reply_text(
+            "🧹 Memory cleared. I've forgotten our previous conversation. "
+            "Your tasks are kept."
+        )
 
 
 async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -381,6 +397,7 @@ def main() -> None:
     application.add_handler(CommandHandler("done", done_command))
     application.add_handler(CommandHandler("delete", delete_command))
     application.add_handler(CommandHandler("remind", remind_command))
+    application.add_handler(CommandHandler("clear", clear_command))
     application.add_handler(CallbackQueryHandler(handle_draft_button))
     application.add_handler(
         MessageHandler(
