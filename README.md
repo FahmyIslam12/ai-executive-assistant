@@ -89,6 +89,16 @@ It is protected in layers. Google only allows read-only access, so even a tricke
 
 **Limitations:** the bot only runs while my laptop is on, Google asks me to log in again every week, email text I ask about is sent to OpenAI, and the project still runs on an old Python version (3.9).
 
+### How drafting and sending works
+
+I can ask the bot to write a reply (for example *"reply and confirm I can attend"*), or paste a job post and ask for an application. For an application, the AI reads a plain-text copy of my CV, writes an email that connects the job's needs to specific things in my CV, and saves it as a draft in Gmail with my CV PDF attached.
+
+Telegram then shows a preview with **Send** and **Cancel** buttons. I can edit the draft in the Gmail app first; pressing Send sends the latest version, and Cancel deletes the draft. The AI has no send tool: only my button press sends an email (human in the loop).
+
+To keep applications honest, the AI must list the CV facts it used, and my code checks each one word for word against my CV before the draft is created. If a fact doesn't match (for example "proficient in Excel" when my CV says "Excel (basic)"), the draft is refused and the AI fixes it and retries.
+
+**Limitation:** the check covers the AI's list of facts, not every sentence, so my review before pressing Send is the final check.
+
 The full requirements, design decisions and test results are in [docs/requirements-gmail.md](docs/requirements-gmail.md).
 
 ## How to run it
