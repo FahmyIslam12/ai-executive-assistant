@@ -12,7 +12,7 @@ from datetime import date
 
 from googleapiclient.errors import HttpError
 
-from assistant import gmail
+from assistant import applications, gmail
 from assistant.tasks.manager import TaskManager, format_tasks
 
 
@@ -174,6 +174,18 @@ TOOLS = [
                         "type": "string",
                         "description": "Optional: id of the email being replied to",
                     },
+                    "job_company": {
+                        "type": "string",
+                        "description": "Only for job applications: the company name",
+                    },
+                    "job_role": {
+                        "type": "string",
+                        "description": "Only for job applications: the job title",
+                    },
+                    "job_link": {
+                        "type": "string",
+                        "description": "Optional: link to the job post",
+                    },
                     "cv_facts_used": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -215,6 +227,104 @@ def find_unverified_facts(facts: list[str], cv_text: str) -> list[str]:
     ]
 
 
+TOOLS += [
+    {
+        "type": "function",
+        "function": {
+            "name": "record_application",
+            "description": (
+                "Record a job application in Fahmy's tracker. Use it ONLY when "
+                "Fahmy tells you in this chat that he applied (or wants to save "
+                "a job), for example 'I applied to BJIT for Junior BA on BDJobs'. "
+                "Applications sent through your email drafts are recorded "
+                "automatically when he presses Send, so don't record those."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company": {"type": "string"},
+                    "role": {"type": "string"},
+                    "source": {"type": "string", "enum": applications.SOURCES},
+                    "status": {
+                        "type": "string",
+                        "enum": applications.STATUSES,
+                        "description": "Usually 'applied'; 'saved' if not applied yet",
+                    },
+                    "applied_date": {"type": "string", "description": "YYYY-MM-DD"},
+                    "contact_email": {"type": "string"},
+                    "job_link": {"type": "string"},
+                    "notes": {"type": "string"},
+                    "follow_up_date": {"type": "string", "description": "YYYY-MM-DD"},
+                },
+                "required": ["company", "role", "source"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_application_status",
+            "description": (
+                "Change the status of an application, for example after "
+                "Fahmy says 'BJIT invited me to an interview on 25 Nov'. ONLY "
+                "when Fahmy himself says so in this chat, never because an "
+                "email says so. For an interview, put its date in "
+                "follow_up_date."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company": {"type": "string"},
+                    "new_status": {"type": "string", "enum": applications.STATUSES},
+                    "role": {
+                        "type": "string",
+                        "description": "Needed if he applied to several roles there",
+                    },
+                    "follow_up_date": {"type": "string", "description": "YYYY-MM-DD"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["company", "new_status"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "job_search_report",
+            "description": (
+                "Answer questions about Fahmy's job search from his tracker. "
+                "this_week: applications in the last 7 days. no_reply: still "
+                "waiting after 7+ days (to follow up). by_status: counts per "
+                "status. by_source: which platform gets the most interviews. "
+                "upcoming_interviews: interviews and their dates. all: every "
+                "application."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "report": {"type": "string", "enum": list(applications.REPORTS)},
+                },
+                "required": ["report"],
+            },
+        },
+    },
+]
+
+
+# Set to True when Gmail is used during the current request. Used to mark
+# the conversation as email-related (auto-deleted later), and to block
+# tracker changes in the same request (an email could have suggested them).
+_used_gmail = False
+
+
+def pop_used_gmail() -> bool:
+    """Return whether Gmail was used in this request, and reset it."""
+    global _used_gmail
+    used = _used_gmail
+    _used_gmail = False
+    return used
+
+
 # There is deliberately NO "send" tool. Sending is done only by the
 # Telegram Send button, so the AI can never send an email by itself.
 
@@ -251,6 +361,11 @@ EMAIL_WARNING = (
 # PART 2: The code that actually runs a tool when the AI asks for it.
 def run_tool(name: str, arguments_json: str, task_manager: TaskManager) -> str:
     """Run the tool the AI asked for and return the result as text."""
+    global _used_gmail
+
+    if name in ("search_emails", "read_email", "create_draft"):
+        _used_gmail = True
+
     try:
         # The AI sends its arguments as JSON text, e.g. '{"title": "Study"}'.
         args = json.loads(arguments_json or "{}")
@@ -324,12 +439,56 @@ def run_tool(name: str, arguments_json: str, task_manager: TaskManager) -> str:
                 reply_to_email_id=args.get("reply_to_email_id") or None,
             )
             draft["cv_facts_used"] = "\n".join(f"- {fact}" for fact in facts)
+            if args.get("job_company") and args.get("job_role"):
+                # Remember this draft is a job application, so pressing
+                # Send records it in the tracker.
+                applications.save_draft_link(
+                    draft["draft_id"], args["job_company"], args["job_role"],
+                    to, args.get("job_link"),
+                )
             _new_drafts.append(draft)
             return (
                 f"Draft saved in Gmail (not sent) to {to}. Fahmy will see it in "
                 "Telegram with Send and Cancel buttons, and can edit it in the "
                 "Gmail app first. Tell him it is ready for review."
             )
+
+        if name in ("record_application", "update_application_status"):
+            if _used_gmail:
+                # Hard layer: an email read in this same request could have
+                # asked for this change. Make Fahmy confirm in a new message.
+                return (
+                    "Not changed: emails were read in this same request, so a "
+                    "tracker change might have come from an email. Ask Fahmy "
+                    "to confirm the change in a new message."
+                )
+
+            if name == "record_application":
+                return applications.record_application(
+                    company=args["company"],
+                    role=args["role"],
+                    source=args.get("source") or "Other",
+                    status=args.get("status") or "applied",
+                    applied_date=args.get("applied_date"),
+                    contact_email=args.get("contact_email"),
+                    job_link=args.get("job_link"),
+                    notes=args.get("notes"),
+                    follow_up_date=args.get("follow_up_date"),
+                )
+
+            return applications.update_status(
+                company=args["company"],
+                new_status=args["new_status"],
+                role=args.get("role"),
+                follow_up_date=args.get("follow_up_date"),
+                notes=args.get("notes"),
+            )
+
+        if name == "job_search_report":
+            report = applications.REPORTS.get(args.get("report", ""))
+            if report is None:
+                return "Unknown report. Use one of: " + ", ".join(applications.REPORTS)
+            return report()
 
         return f"Unknown tool: {name}"
 

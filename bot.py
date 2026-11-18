@@ -4,12 +4,12 @@ import os
 from datetime import date, time
 from zoneinfo import ZoneInfo
 
-from assistant import gmail
+from assistant import applications, gmail
 from assistant.llm import get_ai_response
-from assistant.memory import clear_messages, load_messages, save_messages
+from assistant.memory import clear_messages, load_messages, save_exchange
 from assistant.reminders import build_reminder, load_chat_id, save_chat_id
 from assistant.tasks.manager import TaskManager, format_tasks
-from assistant.tools import pop_new_drafts
+from assistant.tools import pop_new_drafts, pop_used_gmail
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -196,7 +196,11 @@ async def remind_command(
     if not update.message:
         return
 
-    reminder = build_reminder(task_manager.list_tasks(), date.today())
+    reminder = build_reminder(
+        task_manager.list_tasks(),
+        date.today(),
+        applications.follow_ups_due(date.today()),
+    )
     await update.message.reply_text(
         reminder or "Nothing is due today or overdue. 🎉"
     )
@@ -225,7 +229,11 @@ async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
         # Nobody has messaged the bot yet, so we don't know where to send.
         return
 
-    reminder = build_reminder(task_manager.list_tasks(), date.today())
+    reminder = build_reminder(
+        task_manager.list_tasks(),
+        date.today(),
+        applications.follow_ups_due(date.today()),
+    )
 
     if reminder:
         await context.bot.send_message(chat_id=chat_id, text=reminder)
@@ -234,25 +242,16 @@ async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
 def ask_openai(user_message: str) -> str:
     """Send a message to OpenAI using saved conversation history."""
     messages = load_messages()
+    messages.append({"role": "user", "content": user_message})
 
-    messages.append(
-        {
-            "role": "user",
-            "content": user_message,
-        }
-    )
+    try:
+        ai_response = get_ai_response(messages, task_manager)
+    finally:
+        # Was Gmail used? Then this exchange may contain email text, and is
+        # saved as "email_related" (deleted automatically after 24 hours).
+        email_related = pop_used_gmail()
 
-    ai_response = get_ai_response(messages, task_manager)
-
-    messages.append(
-        {
-            "role": "assistant",
-            "content": ai_response,
-        }
-    )
-
-    save_messages(messages)
-
+    save_exchange(user_message, ai_response, email_related)
     return ai_response
 
 
@@ -350,8 +349,21 @@ async def handle_draft_button(
         if action == "send":
             await asyncio.to_thread(gmail.send_draft, draft_id)
             result = "✅ Sent."
+
+            # If this draft was a job application, record it in the tracker.
+            job = applications.pop_draft_link(draft_id)
+            if job:
+                recorded = applications.record_application(
+                    company=job["company"],
+                    role=job["role"],
+                    source="Email",
+                    contact_email=job["contact_email"],
+                    job_link=job["job_link"],
+                )
+                result += f"\n📋 {recorded}"
         elif action == "cancel":
             await asyncio.to_thread(gmail.delete_draft, draft_id)
+            applications.pop_draft_link(draft_id)
             result = "❌ Cancelled. The draft was deleted."
         else:
             return

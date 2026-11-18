@@ -25,15 +25,20 @@ def load_chat_id() -> Optional[int]:
         return None
 
 
-def build_reminder(tasks: list[Task], today: date) -> Optional[str]:
+def build_reminder(
+    tasks: list[Task],
+    today: date,
+    follow_ups: Optional[list[str]] = None,
+) -> Optional[str]:
     """Build a reminder message, or return None if nothing is due."""
+    follow_ups = follow_ups or []
     # Only unfinished tasks that have a due date.
     open_tasks = [t for t in tasks if not t.completed and t.due_date]
 
     overdue = [t for t in open_tasks if t.due_date < today]
     due_today = [t for t in open_tasks if t.due_date == today]
 
-    if not overdue and not due_today:
+    if not overdue and not due_today and not follow_ups:
         return None
 
     lines = ["⏰ Reminder"]
@@ -48,6 +53,10 @@ def build_reminder(tasks: list[Task], today: date) -> Optional[str]:
             f"• {t.title} (was due {t.due_date.strftime('%a %d %b')})"
             for t in overdue
         ]
+
+    if follow_ups:
+        lines.append("\nJob follow-ups due:")
+        lines += [f"• {item}" for item in follow_ups]
 
     lines.append("\nTell me when you finish one, and I'll mark it done.")
     return "\n".join(lines)

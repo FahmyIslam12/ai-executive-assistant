@@ -1,63 +1,66 @@
-import json
+"""Save and load tasks in the SQLite database (previously data/tasks.json)."""
+
 from datetime import date
-from pathlib import Path
+
+from assistant.database import connect
 
 from .models import Task
-from uuid import uuid4
-
-
-TASKS_FILE = Path("data/tasks.json")
-
-
-def ensure_tasks_file() -> None:
-    TASKS_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-    if not TASKS_FILE.exists():
-        TASKS_FILE.write_text("[]", encoding="utf-8")
 
 
 def save_tasks(tasks: list[Task]) -> None:
-    ensure_tasks_file()
+    """Make the tasks table match this list exactly."""
+    connection = connect()
 
-    data = [
-        {
-            "id": task.id,
-            "title": task.title,
-            "completed": task.completed,
-            "due_date": task.due_date.isoformat() if task.due_date else None,
-        }
-        for task in tasks
-    ]
+    with connection:  # one transaction: all changes, or none
+        keep_ids = [task.id for task in tasks]
 
-    TASKS_FILE.write_text(
-        json.dumps(data, indent=2),
-        encoding="utf-8",
-    )
+        # Delete tasks that are no longer in the list.
+        placeholders = ",".join("?" for _ in keep_ids) or "''"
+        connection.execute(
+            f"DELETE FROM tasks WHERE id NOT IN ({placeholders})", keep_ids
+        )
+
+        for task in tasks:
+            values = (
+                task.title,
+                int(task.completed),
+                task.due_date.isoformat() if task.due_date else None,
+                task.application_id,
+                task.id,
+            )
+            # Update the task if it exists...
+            updated = connection.execute(
+                "UPDATE tasks SET title = ?, completed = ?, due_date = ?, "
+                "application_id = ? WHERE id = ?",
+                values,
+            ).rowcount
+            # ...otherwise add it as a new row.
+            if updated == 0:
+                connection.execute(
+                    "INSERT INTO tasks (title, completed, due_date, application_id, id) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    values,
+                )
+
+    connection.close()
 
 
 def load_tasks() -> list[Task]:
-    ensure_tasks_file()
+    """Read all tasks, oldest first (so task numbers stay the same)."""
+    connection = connect()
+    rows = connection.execute(
+        "SELECT id, title, completed, due_date, application_id "
+        "FROM tasks ORDER BY rowid"
+    ).fetchall()
+    connection.close()
 
-    data = json.loads(
-        TASKS_FILE.read_text(encoding="utf-8")
-    )
-
-    tasks = []
-
-    for item in data:
-        due_date = (
-            date.fromisoformat(item["due_date"])
-            if item["due_date"]
-            else None
+    return [
+        Task(
+            title=row["title"],
+            completed=bool(row["completed"]),
+            due_date=date.fromisoformat(row["due_date"]) if row["due_date"] else None,
+            id=row["id"],
+            application_id=row["application_id"],
         )
-
-        tasks.append(
-            Task(
-                title=item["title"],
-                completed=item["completed"],
-                due_date=due_date,
-                id=item.get("id", str(uuid4())),
-            )
-        )
-
-    return tasks
+        for row in rows
+    ]

@@ -15,10 +15,7 @@ token.json
 # macOS
 .DS_Store
 
-# Local assistant memory
-data/memory.json
-
-# Local task data
-data/tasks.json
-data/chat.json
-data/cv/
+# All private local data: database, old JSON backups, chat ID, CV.
+# The * means "everything inside data/", and ! makes one exception.
+data/*
+!data/.gitkeep

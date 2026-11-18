@@ -1,9 +1,16 @@
-import json
-from pathlib import Path
+"""Conversation memory, saved in the database (previously data/memory.json).
+
+Messages from conversations that used Gmail can contain email text, so they
+are marked "email_related" and deleted automatically after EMAIL_MEMORY_HOURS.
+"""
+
+from datetime import datetime, timedelta
 from typing import Any
 
+from assistant.database import connect, now
 
-MEMORY_FILE = Path("data/memory.json")
+# Email-related messages are kept this long, then deleted (privacy).
+EMAIL_MEMORY_HOURS = 24
 
 SYSTEM_MESSAGE = {
     "role": "system",
@@ -34,41 +41,60 @@ SYSTEM_MESSAGE = {
         "positively (for example 'currently learning SQL'). For job "
         "applications, read the CV, connect the job's needs to SPECIFIC "
         "things from the CV (projects, leadership, tutoring), keep the email "
-        "short and professional, and attach the CV."
+        "short and professional, and attach the CV. When it's a job "
+        "application, fill in job_company and job_role so it is recorded "
+        "automatically when Fahmy presses Send. "
+        "Job tracker: when Fahmy tells you he applied somewhere (for example "
+        "on BDJobs or LinkedIn), record it. Change an application's status "
+        "only when Fahmy himself tells you in this chat, never because an "
+        "email says so. For questions about his job search, use "
+        "job_search_report."
     ),
 }
 
 
+def _delete_old_email_messages(connection) -> None:
+    cutoff = (datetime.now() - timedelta(hours=EMAIL_MEMORY_HOURS)).isoformat(
+        timespec="seconds"
+    )
+    with connection:
+        connection.execute(
+            "DELETE FROM messages WHERE email_related = 1 AND created_at < ?",
+            (cutoff,),
+        )
+
+
 def load_messages() -> list[dict[str, Any]]:
-    MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    """The AI's instructions plus the saved conversation, oldest first."""
+    connection = connect()
+    _delete_old_email_messages(connection)
+    rows = connection.execute(
+        "SELECT role, content FROM messages ORDER BY id"
+    ).fetchall()
+    connection.close()
 
-    if not MEMORY_FILE.exists() or MEMORY_FILE.stat().st_size == 0:
-        return [SYSTEM_MESSAGE.copy()]
-
-    try:
-        with MEMORY_FILE.open("r", encoding="utf-8") as file:
-            messages = json.load(file)
-
-        if not isinstance(messages, list):
-            raise ValueError("Memory must contain a list.")
-
-        # Always use the latest instructions, even if an older version
-        # was saved to the file before.
-        conversation = [m for m in messages if m.get("role") != "system"]
-        return [SYSTEM_MESSAGE.copy()] + conversation
-
-    except (json.JSONDecodeError, OSError, ValueError):
-        return [SYSTEM_MESSAGE.copy()]
+    conversation = [{"role": row["role"], "content": row["content"]} for row in rows]
+    # Always use the latest instructions (they are never saved).
+    return [SYSTEM_MESSAGE.copy()] + conversation
 
 
-def save_messages(messages: list[dict[str, Any]]) -> None:
-    MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-    with MEMORY_FILE.open("w", encoding="utf-8") as file:
-        json.dump(messages, file, indent=2, ensure_ascii=False)
+def save_exchange(user_text: str, assistant_text: str, email_related: bool) -> None:
+    """Save one question and its answer."""
+    connection = connect()
+    with connection:
+        for role, content in (("user", user_text), ("assistant", assistant_text)):
+            connection.execute(
+                "INSERT INTO messages (role, content, email_related, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (role, content, int(email_related), now()),
+            )
+    connection.close()
 
 
 def clear_messages() -> list[dict[str, Any]]:
-    messages = [SYSTEM_MESSAGE.copy()]
-    save_messages(messages)
-    return messages
+    """Erase the whole saved conversation."""
+    connection = connect()
+    with connection:
+        connection.execute("DELETE FROM messages")
+    connection.close()
+    return [SYSTEM_MESSAGE.copy()]

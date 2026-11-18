@@ -10,3 +10,5 @@ class Task:
     completed: bool = False
     due_date: Optional[date] = None
     id: str = field(default_factory=lambda: str(uuid4()))
+    # Optional link to a job application (for example "Follow up with BJIT").
+    application_id: Optional[int] = None

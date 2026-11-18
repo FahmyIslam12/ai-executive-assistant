@@ -1,7 +1,7 @@
 from assistant.llm import get_ai_response
-from assistant.memory import clear_messages, load_messages, save_messages
+from assistant.memory import clear_messages, load_messages, save_exchange
 from assistant.tasks.manager import TaskManager, format_tasks
-from assistant.tools import pop_new_drafts
+from assistant.tools import pop_new_drafts, pop_used_gmail
 
 
 def show_help() -> None:
@@ -118,6 +118,7 @@ def main() -> None:
             answer = get_ai_response(messages, task_manager)
         except Exception as error:
             messages.pop()
+            pop_used_gmail()
             print(f"Error: {error}\n")
             continue
 
@@ -128,7 +129,7 @@ def main() -> None:
             }
         )
 
-        save_messages(messages)
+        save_exchange(user_input, answer, pop_used_gmail())
 
         print(f"Assistant: {answer}\n")
 
