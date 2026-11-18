@@ -17,9 +17,10 @@ Version 1 handles AI conversation, task tracking and reminders. Version 2 adds G
 - **Gmail: read and summarize:** *"summarize the interview email"* or *"summarize my unread emails from this week"*. The bot finds and summarizes emails, and can check spam when asked.
 - **Gmail: draft, approve, send:** *"reply and confirm I can attend"*, or paste a job post and ask for an application. The AI writes a draft in Gmail (with my CV attached for applications), and Telegram shows a preview with **Send** and **Cancel** buttons. Nothing is sent until I press Send, and I can edit the draft in the Gmail app first.
 - **Honest applications:** the AI must list the CV facts it used, and the code checks each one word for word against my CV before the draft is created, so it can't exaggerate my skills.
+- **Job-application tracker (SQLite database):** records every application (company, role, platform, date, status, follow-up date). Applications sent with the Send button are recorded automatically; for job portals, tell the bot *"I applied to BJIT for Junior BA on BDJobs"*. Update with *"BJIT invited me to an interview on 25 November"*, and ask *"which companies haven't replied in 7 days?"* or *"which platform gets me the most interviews?"*. Follow-ups due appear in the daily reminder.
 - **AI chat:** ask questions or get help writing, for example a thank-you email after an interview.
-- **Memory:** conversation history is saved to a JSON file and restored on restart. Only the 20 most recent messages are sent to OpenAI, to keep responses fast and costs low.
-- **Task tracking:** tasks have a unique ID and an optional due date, and are saved to a JSON file. Slash commands also work.
+- **Memory:** conversation history is saved in the database and restored on restart. Only the 20 most recent messages are sent to OpenAI, to keep responses fast and costs low. Conversations that used Gmail are deleted automatically after 24 hours.
+- **Task tracking:** tasks have a unique ID and an optional due date, and are saved in the database. Slash commands also work.
 - **Two interfaces:** the same features work in Telegram (on your phone) and in the terminal.
 
 <p>
@@ -51,13 +52,13 @@ You (Telegram or terminal)
         ▼
  bot.py / app.py        ← receives your message, decides what to do
         │
-        ├── a task command  → assistant/tasks/  → saved in data/tasks.json
+        ├── a task command  → assistant/tasks/  → data/assistant.db (SQLite)
         │
         └── a normal message → assistant/llm.py → OpenAI API (message + tool menu)
                                        │
                          OpenAI asks for a tool, e.g. complete_task
                                        │
-                               assistant/tools.py runs it → data/tasks.json
+            assistant/tools.py runs it → Gmail API, or data/assistant.db (SQLite)
                                        │
                          result goes back to OpenAI → final reply to you
 ```
@@ -74,8 +75,10 @@ You (Telegram or terminal)
 | `assistant/tools.py` | The tools the AI can ask for, and the code that runs them |
 | `assistant/gmail.py` | Gmail login (OAuth), search, reading, drafts, send and delete draft |
 | `assistant/reminders.py` | Finds due and overdue tasks, and remembers the chat to remind |
-| `assistant/memory.py` | Saves and loads conversation history |
-| `assistant/tasks/` | Task model, task logic and JSON storage |
+| `assistant/memory.py` | Saves and loads conversation history (database), with email-related messages expiring after 24 hours |
+| `assistant/database.py` | Creates the SQLite database and its tables, and moved the old JSON data in once |
+| `assistant/applications.py` | Job tracker: record applications, update statuses, and the fixed report queries |
+| `assistant/tasks/` | Task model, task logic and database storage |
 
 ### How the Gmail feature works
 
@@ -100,6 +103,25 @@ To keep applications honest, the AI must list the CV facts it used, and my code 
 **Limitation:** the check covers the AI's list of facts, not every sentence, so my review before pressing Send is the final check.
 
 The full requirements, design decisions and test results are in [docs/requirements-gmail.md](docs/requirements-gmail.md).
+
+### How the database works
+
+All data lives in one SQLite file, `data/assistant.db` (SQLite is built into Python; there is no separate server). It has six tables:
+
+| Table | Holds | Linked to |
+|---|---|---|
+| `companies` | each company once | — |
+| `applications` | one row per application | a company (foreign key) |
+| `status_history` | every status change with its date | an application |
+| `tasks` | my tasks | optionally an application |
+| `messages` | conversation memory | — |
+| `draft_links` | which Gmail draft is a job application | — |
+
+Storing each company once and linking applications to it by ID (**normalization**) means "BJIT" and "bjit" count as one company, and lets reports combine tables with `JOIN`. For example, "which platform gets me the most interviews?" joins `applications` with `status_history` and groups the result by platform (`GROUP BY`).
+
+**Safety:** the AI never writes SQL. It can only choose one of six fixed reports in the code, and every value is passed with `?` placeholders, never pasted into the SQL text, which prevents **SQL injection**. If emails were read in the same request, the code refuses tracker changes, because an email could have asked for them; I have to confirm in a new message. Applications are never deleted; only their status changes.
+
+**Moving from JSON:** the first time the database opens, it copies the old `tasks.json` and `memory.json` in, only if the tables are empty (so it can never run twice), in one transaction (everything or nothing), and keeps the old files as `.migrated` backups.
 
 ## How to run it
 
@@ -152,6 +174,8 @@ python app.py    # terminal version
 - **Owner-only:** Telegram bots are public by username, so the bot ignores every user except the owner's Telegram ID.
 - Gmail uses OAuth with only two scopes: read-only and compose (drafts and sending). `credentials.json`, `token.json` and the CV folder are never committed.
 - **Human in the loop:** the AI has no send tool. Only the owner's Send button sends an email.
+- The whole `data/` folder (database, CV, backups) is ignored by Git, so personal data never reaches GitHub.
+- The AI can't run its own SQL: only fixed queries with `?` placeholders (no SQL injection), and tracker changes are blocked in any request where emails were read.
 - **Prompt-injection defence in layers:** email text is labelled as data, the AI is told that instructions never come by email and to warn about emails that contain instructions for an AI, and it has no tools that can send, move or delete email. Tested with attack emails, including one impersonating me.
 - Email text is never written to the logs. `/clear` erases the conversation memory.
 
@@ -161,12 +185,12 @@ python app.py    # terminal version
 - Reminders only arrive while the bot is running on a computer. Hosting it on a server would fix this.
 - Reminders are daily (by date), not at a specific time of day.
 - AI replies aren't fully predictable: it may choose to show only unfinished tasks unless asked for all.
-- Data is stored in JSON files, not a database.
+- The status-change protection assumes changes only come from my own messages; the AI decides when to call the tracker tools, so I check the tracker after updates.
 - No automated tests yet.
 - Gmail login expires every 7 days (Google's rule for apps in testing mode).
 - The prompt-injection defence reduces risk but can't guarantee the AI is never fooled; the hard protection is that it has no risky email tools.
 - Runs on Python 3.9, which is past end of life (to upgrade before deployment).
-- When the AI quotes or summarizes an email, that reply is saved in the local conversation memory until `/clear` is used.
+- When the AI quotes or summarizes an email, that reply stays in the local conversation memory for up to 24 hours (or until `/clear`).
 - The CV fact check covers the AI's list of facts, not every sentence, so the owner's review before pressing Send is still the final check.
 
 ## Roadmap
@@ -175,7 +199,7 @@ python app.py    # terminal version
 - [x] Daily reminder notifications for due and overdue tasks
 - [x] Stage 1a: read and summarize Gmail (read-only)
 - [x] Stage 1b: draft emails and tailored job applications, sent only after my approval
-- [ ] Stage 2: move from JSON files to a SQLite database, including a job-application tracker
+- [x] Stage 2: move from JSON files to a SQLite database, including a job-application tracker
 - [ ] Stage 3: web search with source links
 - [ ] Stage 4: automated tests (pytest)
 - [ ] Stage 5: run the bot 24/7 on a server
@@ -183,4 +207,4 @@ python app.py    # terminal version
 
 ## Tech stack
 
-Python · OpenAI API (tool calling) · Gmail API (OAuth 2.0) · python-telegram-bot · APScheduler · JSON · Git
+Python · OpenAI API (tool calling) · Gmail API (OAuth 2.0) · python-telegram-bot · APScheduler · SQLite / SQL · Git
