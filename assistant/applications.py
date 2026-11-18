@@ -254,25 +254,35 @@ def report_upcoming_interviews() -> str:
         return "No interviews scheduled."
     return "Interviews:\n" + "\n".join(
         f"- {r['role']} at {r['company']}"
-        + (f" on {r['follow_up_date']}" if r["follow_up_date"] else " (date not set)")
+        + (f" | interview date: {r['follow_up_date']}" if r["follow_up_date"]
+           else " | interview date: not set")
         for r in rows
     )
 
 
 def report_all() -> str:
-    """List every application with its status."""
+    """List every application with its status and clearly labeled dates."""
     rows = _rows(
-        "SELECT c.name AS company, a.role, a.status, a.source, a.applied_date "
-        "FROM applications a JOIN companies c ON c.id = a.company_id "
+        "SELECT c.name AS company, a.role, a.status, a.source, a.applied_date, "
+        "a.follow_up_date FROM applications a "
+        "JOIN companies c ON c.id = a.company_id "
         "ORDER BY a.applied_date DESC"
     )
     if not rows:
         return "No applications recorded yet."
-    return f"All applications ({len(rows)}):\n" + "\n".join(
-        f"- {r['role']} at {r['company']}: {r['status']} "
-        f"({r['source']}, {r['applied_date'] or 'not applied yet'})"
-        for r in rows
-    )
+
+    lines = [f"All applications ({len(rows)}):"]
+    for r in rows:
+        # Every date gets a label, so the AI can't mix them up.
+        line = (
+            f"- {r['role']} at {r['company']} | status: {r['status']} "
+            f"| via {r['source']} | applied: {r['applied_date'] or 'not yet'}"
+        )
+        if r["follow_up_date"]:
+            label = "interview date" if r["status"] == "interview" else "follow-up date"
+            line += f" | {label}: {r['follow_up_date']}"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 REPORTS = {
