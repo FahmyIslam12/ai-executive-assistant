@@ -169,6 +169,16 @@ python bot.py    # Telegram bot
 python app.py    # terminal version
 ```
 
+## Tests
+
+35 automated tests check the important behavior in under a second:
+
+```bash
+pytest
+```
+
+They follow the acceptance criteria in `docs/`: tasks, the CV honesty check, the job tracker and its reports, owner-only access, the prompt-injection locks, the search limits, message splitting, and the data move. Tests use **fakes** (pytest's `monkeypatch`) instead of the real OpenAI, Gmail, Telegram and Tavily, and each one runs in its own temporary folder, so they're free, fast, and never touch real data or send real emails. To check the tests themselves, I broke the code on purpose: when one rule had no test watching it, I added one. Details in [docs/requirements-tests.md](docs/requirements-tests.md).
+
 ## Security
 
 - API keys are stored in `.env`, not in the code.
@@ -185,6 +195,8 @@ python app.py    # terminal version
 
 ## Current limitations
 
+- The lock on tracker changes works per message. Web and email text isn't saved, but the bot's own reply is, so a hidden instruction it mentioned could still reach the next message through memory. The AI treats such text as suspicious and only I decide tracker changes, so I accepted this small risk and documented it.
+
 - Web search answers are only as good as the pages found; the AI must list its sources so I can check them. The 3-search limit means big comparisons may be partly answered (the bot says which parts it didn't search).
 
 - Built for one user: all Telegram chats share the same memory and task list.
@@ -192,7 +204,6 @@ python app.py    # terminal version
 - Reminders are daily (by date), not at a specific time of day.
 - AI replies aren't fully predictable: it may choose to show only unfinished tasks unless asked for all.
 - The status-change protection assumes changes only come from my own messages; the AI decides when to call the tracker tools, so I check the tracker after updates.
-- No automated tests yet.
 - Gmail login expires every 7 days (Google's rule for apps in testing mode).
 - The prompt-injection defence reduces risk but can't guarantee the AI is never fooled; the hard protection is that it has no risky email tools.
 - Runs on Python 3.9, which is past end of life (to upgrade before deployment).
@@ -207,10 +218,10 @@ python app.py    # terminal version
 - [x] Stage 1b: draft emails and tailored job applications, sent only after my approval
 - [x] Stage 2: move from JSON files to a SQLite database, including a job-application tracker
 - [x] Stage 3: web search with source links
-- [ ] Stage 4: automated tests (pytest)
+- [x] Stage 4: automated tests (pytest)
 - [ ] Stage 5: run the bot 24/7 on a server
 - [ ] Stage 6: architecture diagram and demo
 
 ## Tech stack
 
-Python · OpenAI API (tool calling) · Gmail API (OAuth 2.0) · python-telegram-bot · APScheduler · SQLite / SQL · Tavily search API · Git
+Python · OpenAI API (tool calling) · Gmail API (OAuth 2.0) · python-telegram-bot · APScheduler · SQLite / SQL · Tavily search API · pytest · Git
