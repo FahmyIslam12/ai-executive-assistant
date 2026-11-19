@@ -1,6 +1,6 @@
 # Stage 3 Requirements: Web Search
 
-**Status:** Approved · **Date:** 19 Nov 2026 · **Owner:** Fahmy Islam
+**Status:** Complete (19 Nov 2026) · **Date:** 19 Nov 2026 · **Owner:** Fahmy Islam
 
 ## 1. User
 
@@ -39,13 +39,29 @@ The assistant searches the web when a question needs current information, and an
 
 ## 7. How we'll know it works (acceptance criteria)
 
-- [ ] "What does BJIT do?" returns a short answer with 2-3 source links.
-- [ ] "What's 15 × 4?" makes no search.
-- [ ] A message that would need many searches stops at 3 and still answers.
-- [ ] Search queries never contain email text or CV details (checked in the logs).
-- [ ] The Tavily key is in `.env` only, never in the code or on GitHub.
+- [x] "What does BJIT do?" returns a short answer with source links (1 search, 4 links).
+- [x] "What's 15 × 4?" makes no search.
+- [x] A message that would need many searches stops at 3 and still answers (a 5-company comparison searched exactly 3 times).
+- [x] Search queries never contain email text or CV details (checked in the logs; queries with an email address are blocked in code).
+- [x] The Tavily key is in `.env` only, never in the code or on GitHub (checked on GitHub after pushing).
 
-## 8. Out of scope
+### Test findings
+
+| Finding | Fix |
+|---|---|
+| A long answer (5-company comparison) crashed with "Message is too long": Telegram allows at most 4,096 characters per message | Long answers are split into several messages, cutting between paragraphs first |
+| The error said "contacting the AI" failed, but the AI had worked; sending to Telegram failed | Separate error messages for "the AI failed" and "sending failed" |
+| After hitting the 3-search limit, the AI said Pathao and bKash had "no data available", although it never searched them | When the limit is hit, the AI is told to say which parts it didn't search |
+| Telegram showed a preview card for the first link, which added noise to answers with several sources | Link previews turned off for all bot messages |
+| Web pages can contain hidden instructions, like emails | Web results are labelled as data, and tracker changes are blocked in any message where web pages were read |
+
+## 8. Known limitations
+
+- Answers depend on the pages Tavily finds, which can be wrong or outdated; I check the source links for anything important.
+- The "say what you didn't search" rule is an instruction to the AI, not a code check.
+- The free plan is 1,000 searches per month; after that, searches stop (no charges, because no card is attached).
+
+## 9. Out of scope
 
 - Reading full web pages in depth (summaries of search results only)
 - Scheduled or automatic searches (for example daily job alerts)

@@ -18,6 +18,7 @@ Version 1 handles AI conversation, task tracking and reminders. Version 2 adds G
 - **Gmail: draft, approve, send:** *"reply and confirm I can attend"*, or paste a job post and ask for an application. The AI writes a draft in Gmail (with my CV attached for applications), and Telegram shows a preview with **Send** and **Cancel** buttons. Nothing is sent until I press Send, and I can edit the draft in the Gmail app first.
 - **Honest applications:** the AI must list the CV facts it used, and the code checks each one word for word against my CV before the draft is created, so it can't exaggerate my skills.
 - **Job-application tracker (SQLite database):** records every application (company, role, platform, date, status, follow-up date). Applications sent with the Send button are recorded automatically; for job portals, tell the bot *"I applied to BJIT for Junior BA on BDJobs"*. Update with *"BJIT invited me to an interview on 25 November"*, and ask *"which companies haven't replied in 7 days?"* or *"which platform gets me the most interviews?"*. Follow-ups due appear in the daily reminder.
+- **Web search with sources:** for current facts (company news, roles, salaries), the AI searches the web through Tavily and answers briefly with source links. It decides by itself when a search is needed, and makes at most 3 searches per message.
 - **AI chat:** ask questions or get help writing, for example a thank-you email after an interview.
 - **Memory:** conversation history is saved in the database and restored on restart. Only the 20 most recent messages are sent to OpenAI, to keep responses fast and costs low. Conversations that used Gmail are deleted automatically after 24 hours.
 - **Task tracking:** tasks have a unique ID and an optional due date, and are saved in the database. Slash commands also work.
@@ -78,6 +79,7 @@ You (Telegram or terminal)
 | `assistant/memory.py` | Saves and loads conversation history (database), with email-related messages expiring after 24 hours |
 | `assistant/database.py` | Creates the SQLite database and its tables, and moved the old JSON data in once |
 | `assistant/applications.py` | Job tracker: record applications, update statuses, and the fixed report queries |
+| `assistant/websearch.py` | Web search through the Tavily API, blocking private data in queries |
 | `assistant/tasks/` | Task model, task logic and database storage |
 
 ### How the Gmail feature works
@@ -141,6 +143,7 @@ pip install -r requirements.txt
 OPENAI_API_KEY=your_openai_api_key
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 TELEGRAM_OWNER_ID=your_telegram_user_id
+TAVILY_API_KEY=your_tavily_key   # optional, for web search (free plan, no card)
 ```
 
 Get a bot token from [@BotFather](https://t.me/BotFather) on Telegram. The `.env` file is listed in `.gitignore`, so your keys are never uploaded.
@@ -171,6 +174,7 @@ python app.py    # terminal version
 - API keys are stored in `.env`, not in the code.
 - The bot hides request URLs from its logs, because Telegram URLs contain the bot token.
 - Account access stays in this app. OpenAI only receives the text needed for each request.
+- **Web search safety:** search queries containing an email address are blocked in code, web results are labelled as data (web pages can contain prompt injection too), tracker changes are blocked in any message where web pages were read, and a hard limit of 3 searches per message protects the free plan.
 - **Owner-only:** Telegram bots are public by username, so the bot ignores every user except the owner's Telegram ID.
 - Gmail uses OAuth with only two scopes: read-only and compose (drafts and sending). `credentials.json`, `token.json` and the CV folder are never committed.
 - **Human in the loop:** the AI has no send tool. Only the owner's Send button sends an email.
@@ -180,6 +184,8 @@ python app.py    # terminal version
 - Email text is never written to the logs. `/clear` erases the conversation memory.
 
 ## Current limitations
+
+- Web search answers are only as good as the pages found; the AI must list its sources so I can check them. The 3-search limit means big comparisons may be partly answered (the bot says which parts it didn't search).
 
 - Built for one user: all Telegram chats share the same memory and task list.
 - Reminders only arrive while the bot is running on a computer. Hosting it on a server would fix this.
@@ -200,11 +206,11 @@ python app.py    # terminal version
 - [x] Stage 1a: read and summarize Gmail (read-only)
 - [x] Stage 1b: draft emails and tailored job applications, sent only after my approval
 - [x] Stage 2: move from JSON files to a SQLite database, including a job-application tracker
-- [ ] Stage 3: web search with source links
+- [x] Stage 3: web search with source links
 - [ ] Stage 4: automated tests (pytest)
 - [ ] Stage 5: run the bot 24/7 on a server
 - [ ] Stage 6: architecture diagram and demo
 
 ## Tech stack
 
-Python · OpenAI API (tool calling) · Gmail API (OAuth 2.0) · python-telegram-bot · APScheduler · SQLite / SQL · Git
+Python · OpenAI API (tool calling) · Gmail API (OAuth 2.0) · python-telegram-bot · APScheduler · SQLite / SQL · Tavily search API · Git
