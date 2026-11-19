@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from assistant.tasks.manager import TaskManager
-from assistant.tools import TOOLS, run_tool
+from assistant.tools import TOOLS, reset_search_count, run_tool
 
 load_dotenv()
 
@@ -44,6 +44,9 @@ def get_ai_response(
     # This list exists only for this one request. Tool steps are not
     # saved to memory.json; only the final answer is.
     request = system_messages + [date_note] + conversation[-MAX_RECENT_MESSAGES:]
+
+    # A new message: the 3-searches limit starts again.
+    reset_search_count()
 
     for _ in range(MAX_TOOL_ROUNDS):
         response = client.chat.completions.create(

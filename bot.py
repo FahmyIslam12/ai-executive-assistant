@@ -11,13 +11,19 @@ from assistant.reminders import build_reminder, load_chat_id, save_chat_id
 from assistant.tasks.manager import TaskManager, format_tasks
 from assistant.tools import pop_new_drafts, pop_used_gmail
 from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    LinkPreviewOptions,
+    Update,
+)
 from telegram.ext import (
     Application,
     ApplicationHandlerStop,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
+    Defaults,
     MessageHandler,
     TypeHandler,
     filters,
@@ -37,6 +43,9 @@ if not TELEGRAM_BOT_TOKEN:
 OWNER_ID = os.getenv("TELEGRAM_OWNER_ID", "").strip()
 
 task_manager = TaskManager()
+
+# Telegram's maximum message length is 4,096 characters; we stay a bit under.
+TELEGRAM_LIMIT = 4000
 
 # When the daily reminder is sent (Bangladesh time).
 REMINDER_TIME = time(hour=9, minute=00, tzinfo=ZoneInfo("Asia/Dhaka"))
@@ -279,20 +288,52 @@ async def handle_message(
             ask_openai,
             user_message,
         )
+    except Exception:
+        logging.exception("The AI request failed.")
+        await update.message.reply_text(
+            "Something went wrong while contacting the AI. "
+            "Check the Terminal for the error."
+        )
+        return
 
-        await update.message.reply_text(ai_response)
+    try:
+        # Telegram allows at most 4,096 characters per message, so long
+        # answers are sent in several parts.
+        for part in split_message(ai_response):
+            await update.message.reply_text(part)
 
         # Show every draft the AI created, with Send and Cancel buttons.
         for draft in pop_new_drafts():
             await show_draft(update, draft)
 
     except Exception:
-        logging.exception("The AI request failed.")
-
+        logging.exception("Sending the reply to Telegram failed.")
         await update.message.reply_text(
-            "Something went wrong while contacting the AI. "
+            "The answer was ready, but sending it to Telegram failed. "
             "Check the Terminal for the error."
         )
+
+
+def split_message(text: str, limit: int = TELEGRAM_LIMIT) -> list[str]:
+    """Cut a long text into parts Telegram accepts, at line breaks if possible."""
+    parts = []
+    text = text.strip() or "(empty answer)"
+
+    while len(text) > limit:
+        # Prefer cutting between paragraphs (a blank line), then at a line
+        # break, then at a space, so headings, sentences and links stay whole.
+        cut = text.rfind("\n\n", 0, limit)
+        if cut < limit // 2:
+            cut = text.rfind("\n", 0, limit)
+        if cut < limit // 2:
+            cut = text.rfind(" ", 0, limit)
+        if cut <= 0:
+            cut = limit
+        parts.append(text[:cut].rstrip())
+        text = text[cut:].lstrip()
+
+    parts.append(text)
+    return parts
 
 
 async def show_draft(update: Update, draft: dict[str, str]) -> None:
@@ -391,9 +432,14 @@ def main() -> None:
     # token. Only show its warnings so the token never appears in logs.
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
+    # Defaults apply to every message the bot sends. Link previews are
+    # off: with several source links, the preview card is just noise.
+    defaults = Defaults(link_preview_options=LinkPreviewOptions(is_disabled=True))
+
     application = (
         Application.builder()
         .token(TELEGRAM_BOT_TOKEN)
+        .defaults(defaults)
         .build()
     )
 
